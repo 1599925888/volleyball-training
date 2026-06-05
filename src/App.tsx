@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { db } from './db';
 import { useAppStore } from './stores/appStore';
@@ -51,7 +51,7 @@ export default function App() {
   }
 
   return (
-    <BrowserRouter basename="/volleyball-training">
+    <HashRouter>
       <Routes>
         <Route path="/onboarding" element={<Onboarding />} />
         <Route path="/onboarding/report" element={<OnboardingReport />} />
@@ -72,6 +72,6 @@ export default function App() {
           <Route path="settings" element={<SettingsPage />} />
         </Route>
       </Routes>
-    </BrowserRouter>
+    </HashRouter>
   );
 }

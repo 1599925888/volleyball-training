@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { db } from '../db';
 import { useAppStore } from '../stores/appStore';
 import { buildPlanPrompt, parsePlanResponse, generatePlanViaAPI, getAIConfig, getFallbackPlan } from '../utils/aiEngine';
@@ -152,9 +153,9 @@ export default function TrainingPage() {
       <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-6 text-center">
         <p className="text-yellow-700 font-medium mb-2">尚未填写今日身体状态</p>
         <p className="text-sm text-yellow-600 mb-3">训练前请先填写身体指标</p>
-        <a href="/body" className="inline-block px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700">
+        <Link to="/body" className="inline-block px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700">
           填写身体状态
-        </a>
+        </Link>
       </div>
     );
   }
@@ -204,9 +205,9 @@ export default function TrainingPage() {
                 <li>点击「API Keys」→ 创建 Key → 复制</li>
                 <li>点击下方按钮粘贴 Key</li>
               </ol>
-              <a href="/settings" className="inline-block w-full py-2.5 bg-white text-blue-700 rounded-lg text-sm font-medium text-center hover:bg-blue-50">
+              <Link to="/settings" className="inline-block w-full py-2.5 bg-white text-blue-700 rounded-lg text-sm font-medium text-center hover:bg-blue-50">
                 ⚡ 配置 API Key（30 秒搞定）
-              </a>
+              </Link>
             </div>
 
             {/* Manual fallback */}
