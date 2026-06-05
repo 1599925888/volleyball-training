@@ -51,7 +51,7 @@ export default function App() {
   }
 
   return (
-    <BrowserRouter>
+    <BrowserRouter basename="/volleyball-training">
       <Routes>
         <Route path="/onboarding" element={<Onboarding />} />
         <Route path="/onboarding/report" element={<OnboardingReport />} />
