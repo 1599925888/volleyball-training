@@ -18,21 +18,28 @@ import DietPage from './pages/DietPage';
 import SettingsPage from './pages/SettingsPage';
 
 export default function App() {
-  const { setOnboardingCompleted, setInitialAssessment, setUserProfile } = useAppStore();
+  const { setOnboardingCompleted, setInitialAssessment, setUserProfile, setCurrentMacroCycle } = useAppStore();
   const [loading, setLoading] = useState(true);
   const [hasAssessment, setHasAssessment] = useState(false);
 
   useEffect(() => {
     async function load() {
+      // Load assessment
       const assessment = await db.initialAssessments.orderBy('date').last();
       if (assessment) {
         setHasAssessment(true);
         setInitialAssessment(assessment);
         setOnboardingCompleted(true);
       }
+      // Load profile
       const profile = await db.userProfile.orderBy('id').last();
       if (profile) {
         setUserProfile(profile);
+      }
+      // Load current macro cycle
+      const macroCycle = await db.macroCycles.orderBy('startDate').reverse().first();
+      if (macroCycle) {
+        setCurrentMacroCycle(macroCycle);
       }
       setLoading(false);
     }

@@ -52,12 +52,13 @@ export default function TrainingPage() {
 
   // === Rule Engine ===
   async function useRuleEngine() {
-    if (!bodyMetrics || !currentMacroCycle) return;
+    if (!bodyMetrics) return;
+    const macroCycle = currentMacroCycle || { phase: 'strength_base' as const, weekNumber: 1, startDate: today, endDate: today };
     const plan = getFallbackPlan({
       assessment: initialAssessment,
       report: assessmentReport,
       bodyMetrics,
-      macroCycle: currentMacroCycle,
+      macroCycle,
       trainingMode,
     });
     await savePlan(plan);
@@ -65,12 +66,13 @@ export default function TrainingPage() {
 
   // === Manual AI ===
   function startManual() {
-    if (!bodyMetrics || !currentMacroCycle) return;
+    if (!bodyMetrics) return;
+    const macroCycle = currentMacroCycle || { phase: 'strength_base' as const, weekNumber: 1, startDate: today, endDate: today };
     const p = buildPlanPrompt({
       assessment: initialAssessment,
       report: assessmentReport,
       bodyMetrics,
-      macroCycle: currentMacroCycle,
+      macroCycle,
       trainingMode,
     });
     setPrompt(p);
@@ -95,13 +97,14 @@ export default function TrainingPage() {
 
   // === API Auto ===
   async function useAPI() {
-    if (!bodyMetrics || !currentMacroCycle || !hasAPIKey) return;
+    if (!bodyMetrics || !hasAPIKey) return;
+    const macroCycle = currentMacroCycle || { phase: 'strength_base' as const, weekNumber: 1, startDate: today, endDate: today };
     setGenMode('api-loading');
     const plan = await generatePlanViaAPI({
       assessment: initialAssessment,
       report: assessmentReport,
       bodyMetrics,
-      macroCycle: currentMacroCycle,
+      macroCycle,
       trainingMode,
     });
 
