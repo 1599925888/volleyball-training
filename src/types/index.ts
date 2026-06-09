@@ -149,10 +149,11 @@ export interface ExerciseBlock {
   name: string;
   sets?: number;
   reps?: string;
-  load?: string; // e.g. "80% 1RM" or "bodyweight"
+  load?: string;
   rest?: string;
-  duration?: string; // for timed exercises
+  duration?: string;
   notes?: string;
+  targets?: string[]; // e.g. ['knee', 'shoulder']
 }
 
 export interface TrainingSession {
