@@ -30,35 +30,29 @@ export function saveAIConfig(config: AIConfig) {
 
 // ============ Prompt Builders (for manual mode) ============
 
-const SYSTEM_PROMPT = `你是顶级排球体能教练和运动科学专家。请根据运动员的完整数据生成今日个性化训练计划。
+const SYSTEM_PROMPT = `你是拥有20年经验的顶级排球体能教练+运动科学博士，服务过国家队。请根据运动员完整数据生成极其详细的个性化训练计划。
 
-核心原则（优先级）：
-1. 预防受伤永远是第一位。宁可保守不冒进。
-2. 提升垂直弹跳（助跑摸高）是核心目标。
-3. 提升排球专项水平。
-
-训练每次必须包含5个模块：热身→伤病预防→主体训练→排球专项→放松
-
-你必须以纯JSON格式回复（不要markdown代码块，只要JSON）：
+返回纯JSON（不要markdown）。格式要求：
 {
   "bodySignal": "green|yellow|red",
-  "intensityPercent": 100,
-  "analysis": "简短分析（50字）",
-  "warmup": [{"name":"动作名","duration":"时长","notes":"要点"}],
-  "prehab": [{"name":"动作名","sets":2,"reps":"次数","rest":"休息","notes":"要点"}],
-  "mainWorkout": [{"name":"动作名","sets":3,"reps":"次数","load":"负重","rest":"休息","notes":"要点"}],
-  "volleyballSpecific": [{"name":"内容","duration":"时长","notes":"要点"}],
-  "cooldown": [{"name":"动作名","duration":"时长","notes":"要点"}],
-  "notes": "综合建议",
-  "recoveryRecommendation": "恢复建议"
+  "intensityPercent": 数字(30-100),
+  "analysis": "专业分析100-150字：身体状态影响、周期目标、风险点",
+  "warmup": [{"name":"动作","sets":2,"reps":"次数","duration":"时长","rest":"秒","notes":"要点"}],
+  "prehab": [{"name":"动作","sets":2-3,"reps":"次数","rest":"秒","notes":"防什么伤"}],
+  "mainWorkout": [{"name":"完整动作名（如杠铃后深蹲）","sets":3-5,"reps":"具体次数","load":"基于1RM的具体重量如85kg(75%1RM)","rest":"秒","tempo":"X-X-X-X","rpe":"RPE X","notes":"动作要点+排球价值"}],
+  "volleyballSpecific": [{"name":"内容","sets":N,"reps":"次数","duration":"时长","notes":"要点"}],
+  "cooldown": [{"name":"拉伸/放松","duration":"每侧X秒","notes":"说明"}],
+  "dietRecommendation": {"protein":"g","carbs":"g","water":"L","preWorkout":"建议","postWorkout":"建议","generalTips":"要点"},
+  "recoveryRecommendation": "100字恢复方案",
+  "notes": "RPE目标+预计时长+安全提示"
 }
 
 规则：
-- 红灯→主体和专项为空或极轻度，以恢复为主
-- 黄灯→负重降至70%，减少组数
-- 主体负重必须基于1RM标注"Xkg（Y% 1RM）"
-- prehab必须根据运动员风险部位定制
-- 学期模式主体3-4个动作，假期模式5-6个`;
+- 负重不能写"中等"或"大重量"！必须标注基于1RM的具体kg数和百分比
+- 红灯→纯恢复，无负重无跳跃。黄灯→70%强度，RPE≤6
+- 学期模式主体≤4动作，假期≤6动作
+- prehab必须个性化匹配运动员风险部位
+- 饮食必须给出具体克数`;
 
 function buildPlanContext(context: {
   assessment: InitialAssessment | null;
@@ -70,10 +64,10 @@ function buildPlanContext(context: {
   const { assessment, report, bodyMetrics, macroCycle, trainingMode } = context;
 
   const phaseNames: Record<string, string> = {
-    strength_base: '基础力量期（下肢+后链力量，低跳跃量）',
-    power_conversion: '力量转化期（力量转爆发力，中跳跃量）',
-    explosive_peak: '爆发力峰值期（最大化弹跳，高跳跃量）',
-    deload: '减载恢复期（主动恢复，不跳不打）',
+    strength_base: '基础力量期——建立下肢+后链力量基础，强化关节稳定性。跳跃量低，侧重动作质量。',
+    power_conversion: '力量转化期——将基础力量转化为爆发力。加入跳跃和奥林匹克举重。跳跃量中。',
+    explosive_peak: '爆发力峰值期——最大化垂直弹跳能力。最高跳跃量，冲击摸高纪录。需密切监控膝盖。',
+    deload: '减载恢复期——主动恢复，消除累积疲劳。不跳跃不打球，纯恢复。',
   };
 
   let signal = 'green';
@@ -83,23 +77,29 @@ function buildPlanContext(context: {
   const parts: string[] = [];
 
   if (assessment) {
-    parts.push(`【体测数据】年龄${assessment.age}岁 ${assessment.gender==='male'?'男':'女'} 身高${assessment.height}cm 体重${assessment.weight}kg
-站立摸高${assessment.standingReach}cm 助跑摸高${assessment.maxApproachReach}cm 原地纵跳${assessment.standingVerticalJump}cm
-深蹲1RM:${assessment.squatMax}kg(相对${(assessment.squatMax/assessment.weight).toFixed(1)}x) 硬拉1RM:${assessment.deadliftMax}kg(后链比${(assessment.deadliftMax/assessment.squatMax).toFixed(2)}) 卧推1RM:${assessment.benchMax}kg
-经验:${assessment.experience==='beginner'?'初级':assessment.experience==='intermediate'?'中级':'进阶'} 伤病:${assessment.injuryHistory?.join('、')||'无'} 当前困扰:${assessment.currentIssues||'无'}
-活动度:过顶深蹲${assessment.overheadSquatScore}/3 肩${assessment.shoulderMobilityScore}/3 踝${assessment.ankleMobilityScore}/3 髋${assessment.thomasTestScore}/3`);
+    const relSquat = (assessment.squatMax / assessment.weight).toFixed(1);
+    const pChain = (assessment.deadliftMax / assessment.squatMax).toFixed(2);
+    const vj = assessment.maxApproachReach - assessment.standingReach;
+    parts.push(`【体测档案】
+年龄${assessment.age}岁 · ${assessment.gender==='male'?'男':'女'} · 身高${assessment.height}cm · 体重${assessment.weight}kg
+站立摸高${assessment.standingReach}cm · 助跑摸高${assessment.maxApproachReach}cm · 弹跳高度${vj}cm · 原地纵跳${assessment.standingVerticalJump}cm
+深蹲1RM:${assessment.squatMax}kg(相对力量${relSquat}x体重) · 硬拉1RM:${assessment.deadliftMax}kg(后链比${pChain}) · 卧推1RM:${assessment.benchMax}kg
+经验:${assessment.experience==='beginner'?'初级<1年':assessment.experience==='intermediate'?'中级1-3年':'进阶3年+'}
+伤病历史:${assessment.injuryHistory?.join('、')||'无'} · 当前困扰:${assessment.currentIssues||'无'} · 康复:${assessment.rehabStatus==='fully_recovered'?'完全恢复':assessment.rehabStatus==='recovering'?'恢复中':'慢性'}
+活动度:过顶深蹲${assessment.overheadSquatScore}/3·肩${assessment.shoulderMobilityScore}/3·踝${assessment.ankleMobilityScore}/3·髋${assessment.thomasTestScore}/3(1受限2达标3良好)`);
   }
 
   if (report) {
-    parts.push(`【评估】弹跳潜力:${report.jumpRating==='green'?'优秀':report.jumpRating==='yellow'?'良好':'待提升'} 风险部位:${report.riskAreas?.join('、')||'无'} 建议负荷起点:${report.suggestedTrainingLoad}%1RM`);
+    parts.push(`【评估】弹跳潜力:${report.jumpRating==='green'?'优秀':report.jumpRating==='yellow'?'良好':'待提升'} · 高风险:${report.riskAreas?.join('、')||'无'} · 负荷起点:${report.suggestedTrainingLoad}%1RM · 建议起始周期:${report.suggestedStartPhase} · 跳跃量:${report.suggestedJumpVolume}`);
   }
 
-  parts.push(`【今日状态】日期${bodyMetrics.date} 体重${bodyMetrics.weight}kg 心率${bodyMetrics.restingHeartRate||'?'}bpm
-睡眠${bodyMetrics.sleepHours}h(质量${bodyMetrics.sleepQuality}/5) 疲劳${bodyMetrics.fatigueLevel}/10 酸痛:${bodyMetrics.soreAreas?.join('、')||'无'}
-${bodyMetrics.playedVolleyball?'昨日有排球活动→需降低下肢冲击':''} ${bodyMetrics.injuryNotes||''}`);
+  parts.push(`【今日状态】
+日期${bodyMetrics.date} · 体重${bodyMetrics.weight}kg · 晨起心率${bodyMetrics.restingHeartRate||'未测'}bpm
+睡眠${bodyMetrics.sleepHours}h(质量${bodyMetrics.sleepQuality}/5) · 疲劳${bodyMetrics.fatigueLevel}/10${bodyMetrics.fatigueLevel<=4?'(恢复良好)':bodyMetrics.fatigueLevel<=7?'(中度疲劳)':'(明显疲劳!)'}
+酸痛:${bodyMetrics.soreAreas?.filter(s=>s!=='none').join('、')||'无'} · ${bodyMetrics.playedVolleyball?'⚠昨天有排球活动→今天必须降低下肢冲击负荷':'昨日无排球'} · ${bodyMetrics.injuryNotes||''}`);
 
-  parts.push(`【信号】${signal==='green'?'🟢绿灯100%':signal==='yellow'?'🟡黄灯70%':'🔴红灯→恢复日'}`);
-  parts.push(`【周期】${macroCycle?phaseNames[macroCycle.phase]:'未设定'} 第${macroCycle?.weekNumber||1}周 模式:${trainingMode==='school'?'学期(2-3次/周)':'假期(4-5次/周)'}`);
+  parts.push(`信号:${signal==='green'?'🟢绿灯全力100%':signal==='yellow'?'🟡黄灯70% RPE≤6':'🔴红灯→纯恢复日 禁止高强度'}`);
+  parts.push(`周期:${macroCycle?phaseNames[macroCycle.phase]:'未设定'} · 第${macroCycle?.weekNumber||1}/4周 ${macroCycle?`(${macroCycle.weekNumber<=1?'适应周低负荷':macroCycle.weekNumber<=2?'递增周':macroCycle.weekNumber<=3?'高峰周':'最大负荷/测试周'})`:''} · ${trainingMode==='school'?'学期(2-3次/周浓缩)':'假期(4-5次/周)'}`);
 
   return parts.join('\n\n');
 }
