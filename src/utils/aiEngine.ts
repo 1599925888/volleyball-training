@@ -179,7 +179,7 @@ export async function generatePlanViaAPI(context: Parameters<typeof buildPlanCon
   if (!config.apiKey) return null;
 
   try {
-    const response = await fetch('/api/generate-plan', {
+    const response = await fetch('/.netlify/functions/generate-plan', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ...config, ...context }),
@@ -208,7 +208,7 @@ export async function generateReportViaAPI(assessment: InitialAssessment): Promi
   const config = getAIConfig();
   if (!config.apiKey) return null;
   try {
-    const res = await fetch('/api/generate-report', {
+    const res = await fetch('/.netlify/functions/generate-report', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ...config, ...assessment }),

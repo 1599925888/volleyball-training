@@ -12,6 +12,8 @@ const signalStyles = {
   red: { bg: 'bg-red-50 border-red-200', text: 'text-red-700', label: '🔴 需要恢复 · 主动恢复日' },
 };
 
+type GenMode = 'select' | 'rule' | 'manual-prompt' | 'manual-paste' | 'api-loading';
+
 export default function TrainingPage() {
   const { initialAssessment, assessmentReport, currentMacroCycle, trainingMode } = useAppStore();
   const today = new Date().toISOString().split('T')[0];
@@ -21,31 +23,48 @@ export default function TrainingPage() {
   const [bodyMetrics, setBodyMetrics] = useState<BodyMetrics | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // AI manual mode state
+  const [genMode, setGenMode] = useState<GenMode>('select');
   const [prompt, setPrompt] = useState('');
-  const [showPrompt, setShowPrompt] = useState(false);
   const [aiResponse, setAiResponse] = useState('');
-  const [showPaste, setShowPaste] = useState(false);
-  const [aiGenerating, setAiGenerating] = useState(false);
 
   const aiConfig = getAIConfig();
+  const hasAPIKey = aiConfig.mode === 'api' && aiConfig.apiKey;
 
   useEffect(() => { loadToday(); }, []);
 
   async function loadToday() {
     const metrics = await db.bodyMetrics.where('date').equals(today).first();
     setBodyMetrics(metrics || null);
-
-    let plan = await db.dailyPlans.where('date').equals(today).first();
+    const plan = await db.dailyPlans.where('date').equals(today).first();
     setDailyPlan(plan || null);
-
     const session = await db.trainingSessions.where('date').equals(today).first();
     setTodaySession(session || null);
-
     setLoading(false);
   }
 
-  function handleGeneratePrompt() {
+  async function savePlan(plan: DailyPlan) {
+    plan.macroCycleId = currentMacroCycle?.id || 0;
+    const id = await db.dailyPlans.add(plan);
+    plan.id = id;
+    setDailyPlan(plan);
+    setGenMode('select');
+  }
+
+  // === Rule Engine ===
+  async function useRuleEngine() {
+    if (!bodyMetrics || !currentMacroCycle) return;
+    const plan = getFallbackPlan({
+      assessment: initialAssessment,
+      report: assessmentReport,
+      bodyMetrics,
+      macroCycle: currentMacroCycle,
+      trainingMode,
+    });
+    await savePlan(plan);
+  }
+
+  // === Manual AI ===
+  function startManual() {
     if (!bodyMetrics || !currentMacroCycle) return;
     const p = buildPlanPrompt({
       assessment: initialAssessment,
@@ -55,35 +74,29 @@ export default function TrainingPage() {
       trainingMode,
     });
     setPrompt(p);
-    setShowPrompt(true);
+    setGenMode('manual-prompt');
   }
 
-  function handleCopyPrompt() {
-    navigator.clipboard.writeText(prompt).then(() => {
-      alert('已复制！粘贴到 DeepSeek / ChatGPT / 任何 AI 聊天框，拿到回复后回来粘贴。');
-      setShowPrompt(false);
-      setShowPaste(true);
-    });
+  function copyPrompt() {
+    navigator.clipboard.writeText(prompt);
+    setGenMode('manual-paste');
   }
 
-  async function handlePasteResponse() {
+  async function pasteResponse() {
     if (!aiResponse.trim()) return;
-    const parsed = parsePlanResponse(aiResponse, today);
-    if (parsed) {
-      parsed.macroCycleId = currentMacroCycle?.id || 0;
-      const id = await db.dailyPlans.add(parsed);
-      parsed.id = id;
-      setDailyPlan(parsed);
-      setShowPaste(false);
+    const plan = parsePlanResponse(aiResponse, today);
+    if (plan) {
+      await savePlan(plan);
       setAiResponse('');
     } else {
-      alert('无法解析 AI 回复。请确保复制了完整的 JSON 回复，不要只复制一部分。');
+      alert('无法解析。请复制 AI 的完整 JSON 回复再试。');
     }
   }
 
-  async function handleAutoGenerate() {
-    if (!bodyMetrics || !currentMacroCycle) return;
-    setAiGenerating(true);
+  // === API Auto ===
+  async function useAPI() {
+    if (!bodyMetrics || !currentMacroCycle || !hasAPIKey) return;
+    setGenMode('api-loading');
     const plan = await generatePlanViaAPI({
       assessment: initialAssessment,
       report: assessmentReport,
@@ -93,39 +106,11 @@ export default function TrainingPage() {
     });
 
     if (plan) {
-      plan.macroCycleId = currentMacroCycle.id || 0;
-      const id = await db.dailyPlans.add(plan);
-      plan.id = id;
-      setDailyPlan(plan);
+      await savePlan(plan);
     } else {
-      // Fallback to rule engine
-      const fb = getFallbackPlan({
-        assessment: initialAssessment,
-        report: assessmentReport,
-        bodyMetrics,
-        macroCycle: currentMacroCycle,
-        trainingMode,
-      });
-      fb.notes = `⚠️ AI 不可用，使用规则引擎\n${fb.notes}`;
-      const id = await db.dailyPlans.add(fb);
-      fb.id = id;
-      setDailyPlan(fb);
+      // API failed, fallback to rule engine
+      useRuleEngine();
     }
-    setAiGenerating(false);
-  }
-
-  async function handleSkipAI() {
-    if (!bodyMetrics || !currentMacroCycle) return;
-    const fb = getFallbackPlan({
-      assessment: initialAssessment,
-      report: assessmentReport,
-      bodyMetrics,
-      macroCycle: currentMacroCycle,
-      trainingMode,
-    });
-    const id = await db.dailyPlans.add(fb);
-    fb.id = id;
-    setDailyPlan(fb);
   }
 
   async function handleComplete(rpe: number) {
@@ -139,14 +124,7 @@ export default function TrainingPage() {
     setDailyPlan({ ...dailyPlan, completed: true });
   }
 
-  if (loading) {
-    return (
-      <div className="text-center py-8 text-slate-400">
-        <div className="w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-2" />
-        加载中...
-      </div>
-    );
-  }
+  if (loading) return <div className="text-center py-8 text-slate-400">加载中...</div>;
 
   if (!bodyMetrics) {
     return (
@@ -160,106 +138,119 @@ export default function TrainingPage() {
     );
   }
 
-  // ===== Plan Generation Screen =====
-  if (!dailyPlan) {
-    const hasAPI = aiConfig.mode === 'api' && aiConfig.apiKey;
-
+  // ====== Plan Selection ======
+  if (!dailyPlan && genMode === 'select') {
     return (
       <div className="space-y-4">
         <h2 className="text-lg font-semibold text-slate-800">今日训练</h2>
+        <p className="text-xs text-slate-400">体重 {bodyMetrics.weight}kg · 疲劳 {bodyMetrics.fatigueLevel}/10 · 睡眠 {bodyMetrics.sleepHours}h</p>
 
-        {/* API Mode — direct auto-generate */}
-        {hasAPI ? (
-          <div className="bg-white rounded-xl p-6 shadow-sm text-center space-y-4">
-            <div className="text-5xl">🤖</div>
+        {/* Option 1: Rule Engine - always works */}
+        <button onClick={useRuleEngine}
+          className="w-full bg-white rounded-xl p-5 shadow-sm border-2 border-blue-500 hover:shadow-md transition-all text-left">
+          <div className="flex items-center gap-3">
+            <span className="text-3xl">🔧</span>
             <div>
-              <p className="font-medium text-slate-700">AI 智能教练已就绪</p>
-              <p className="text-xs text-slate-400 mt-1">使用 {aiConfig.apiEndpoint.includes('deepseek') ? 'DeepSeek' : aiConfig.modelName} 为你生成个性化训练计划</p>
-            </div>
-            <button onClick={handleAutoGenerate} disabled={aiGenerating}
-              className="w-full py-3 bg-blue-600 text-white rounded-xl text-sm font-medium hover:bg-blue-700 disabled:bg-blue-300">
-              {aiGenerating ? (
-                <span className="flex items-center justify-center gap-2">
-                  <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  AI 正在分析你的数据...
-                </span>
-              ) : '⚡ 一键生成训练计划'}
-            </button>
-            <div className="flex gap-2 text-xs">
-              <button onClick={handleGeneratePrompt} className="flex-1 py-2 text-slate-500 hover:text-slate-700 border border-slate-200 rounded-lg">
-                📋 手动复制 Prompt
-              </button>
-              <button onClick={handleSkipAI} className="flex-1 py-2 text-slate-500 hover:text-slate-700 border border-slate-200 rounded-lg">
-                规则引擎
-              </button>
+              <p className="font-semibold text-blue-700">规则引擎生成（推荐）</p>
+              <p className="text-xs text-slate-500 mt-0.5">基于运动科学内置规则，零延迟，免费</p>
             </div>
           </div>
-        ) : (
-          /* No API Key — show setup guide */
-          <div className="space-y-3">
-            <div className="bg-gradient-to-r from-blue-600 to-blue-700 rounded-xl p-5 text-white">
-              <p className="font-semibold text-lg mb-1">🚀 开启 AI 智能教练</p>
-              <p className="text-sm text-blue-100 mb-4">自动生成训练计划，实时适应你的身体状态。一次训练成本不到 1 分钱。</p>
-              <ol className="text-xs text-blue-100 space-y-1 list-decimal list-inside mb-4">
-                <li>打开 <a href="https://platform.deepseek.com" target="_blank" rel="noreferrer" className="underline font-medium text-white">platform.deepseek.com</a> 注册（手机号即可）</li>
-                <li>点击「API Keys」→ 创建 Key → 复制</li>
-                <li>点击下方按钮粘贴 Key</li>
-              </ol>
-              <Link to="/settings" className="inline-block w-full py-2.5 bg-white text-blue-700 rounded-lg text-sm font-medium text-center hover:bg-blue-50">
-                ⚡ 配置 API Key（30 秒搞定）
-              </Link>
+        </button>
+
+        {/* Option 2: Manual AI */}
+        <button onClick={startManual}
+          className="w-full bg-white rounded-xl p-5 shadow-sm border-2 border-green-500 hover:shadow-md transition-all text-left">
+          <div className="flex items-center gap-3">
+            <span className="text-3xl">🤖</span>
+            <div>
+              <p className="font-semibold text-green-700">AI 智能生成（免费）</p>
+              <p className="text-xs text-slate-500 mt-0.5">复制 Prompt → DeepSeek/ChatGPT/Kimi → 粘贴回复</p>
             </div>
+          </div>
+        </button>
 
-            {/* Manual fallback */}
-            {!showPrompt && !showPaste && (
-              <div className="bg-white rounded-xl p-4 shadow-sm space-y-3">
-                <p className="text-sm text-slate-500">或者先用传统方式：</p>
-                <button onClick={handleGeneratePrompt}
-                  className="w-full py-2.5 border border-slate-200 text-slate-600 rounded-lg text-sm font-medium hover:bg-slate-50">
-                  📋 手动模式（复制粘贴）
-                </button>
-                <button onClick={handleSkipAI}
-                  className="w-full py-2.5 border border-slate-200 text-slate-500 rounded-lg text-sm hover:bg-slate-50">
-                  规则引擎
-                </button>
+        {/* Option 3: API Auto (if key configured) */}
+        {hasAPIKey && (
+          <button onClick={useAPI}
+            className="w-full bg-white rounded-xl p-5 shadow-sm border-2 border-purple-500 hover:shadow-md transition-all text-left">
+            <div className="flex items-center gap-3">
+              <span className="text-3xl">⚡</span>
+              <div>
+                <p className="font-semibold text-purple-700">API 一键自动生成</p>
+                <p className="text-xs text-slate-500 mt-0.5">DeepSeek API 自动调用，3秒出结果</p>
               </div>
-            )}
+            </div>
+          </button>
+        )}
 
-            {/* Prompt / Paste steps still available as backup */}
-            {showPrompt && (
-              <div className="bg-white rounded-xl p-4 shadow-sm space-y-3">
-                <p className="text-sm text-slate-600">1️⃣ 复制下方 Prompt</p>
-                <div className="bg-slate-50 rounded-lg p-3 max-h-48 overflow-y-auto">
-                  <pre className="text-xs text-slate-600 whitespace-pre-wrap">{prompt}</pre>
-                </div>
-                <button onClick={handleCopyPrompt}
-                  className="w-full py-2.5 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700">
-                  📋 复制 Prompt
-                </button>
-                <button onClick={() => setShowPrompt(false)} className="w-full py-2 text-sm text-slate-500">取消</button>
-              </div>
-            )}
-
-            {showPaste && (
-              <div className="bg-white rounded-xl p-4 shadow-sm space-y-3">
-                <p className="text-sm text-slate-600">2️⃣ 粘贴 AI 回复</p>
-                <textarea value={aiResponse} onChange={(e) => setAiResponse(e.target.value)}
-                  placeholder="把 AI 的完整回复粘贴到这里..."
-                  className="w-full h-48 px-3 py-2 border border-slate-200 rounded-lg text-xs font-mono" />
-                <button onClick={handlePasteResponse}
-                  className="w-full py-2.5 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700">
-                  ✅ 解析训练计划
-                </button>
-                <button onClick={() => { setShowPaste(false); setAiResponse(''); }} className="w-full py-2 text-sm text-slate-500">取消</button>
-              </div>
-            )}
+        {!hasAPIKey && (
+          <div className="bg-slate-50 rounded-xl p-3 text-center">
+            <p className="text-xs text-slate-500">
+              想用 API 自动模式？<Link to="/settings" className="text-blue-600 underline">去设置配 DeepSeek Key</Link>（一次不到1分钱）
+            </p>
           </div>
         )}
       </div>
     );
   }
 
-  // ===== Plan Display =====
+  // ====== Manual Prompt ======
+  if (genMode === 'manual-prompt') {
+    return (
+      <div className="space-y-4">
+        <h2 className="text-lg font-semibold text-slate-800">AI 生成训练计划</h2>
+        <p className="text-sm text-slate-600">步骤 1/2：复制下方 Prompt</p>
+        <div className="bg-slate-50 rounded-lg p-3 max-h-64 overflow-y-auto">
+          <pre className="text-xs text-slate-600 whitespace-pre-wrap">{prompt}</pre>
+        </div>
+        <button onClick={copyPrompt}
+          className="w-full py-3 bg-blue-600 text-white rounded-xl text-sm font-medium hover:bg-blue-700">
+          📋 复制 Prompt 并进入下一步
+        </button>
+        <button onClick={() => setGenMode('select')} className="w-full py-2 text-sm text-slate-500">返回</button>
+      </div>
+    );
+  }
+
+  // ====== Manual Paste ======
+  if (genMode === 'manual-paste') {
+    return (
+      <div className="space-y-4">
+        <h2 className="text-lg font-semibold text-slate-800">AI 生成训练计划</h2>
+        <p className="text-sm text-slate-600">步骤 2/2：去 AI 聊天粘贴 Prompt，把回复粘贴回来</p>
+        <div className="flex flex-wrap gap-1">
+          <a href="https://chat.deepseek.com" target="_blank" rel="noreferrer" className="px-3 py-1 bg-green-100 text-green-700 rounded-full text-xs font-medium">DeepSeek（推荐）</a>
+          <a href="https://kimi.moonshot.cn" target="_blank" rel="noreferrer" className="px-3 py-1 bg-white border text-slate-500 rounded-full text-xs">Kimi</a>
+          <a href="https://chat.openai.com" target="_blank" rel="noreferrer" className="px-3 py-1 bg-white border text-slate-500 rounded-full text-xs">ChatGPT</a>
+        </div>
+        <textarea value={aiResponse} onChange={(e) => setAiResponse(e.target.value)}
+          placeholder="把 AI 的完整回复粘贴到这里..."
+          className="w-full h-48 px-3 py-2 border border-slate-200 rounded-lg text-xs font-mono" />
+        <button onClick={pasteResponse}
+          className="w-full py-3 bg-green-600 text-white rounded-xl text-sm font-medium hover:bg-green-700">
+          ✅ 解析并应用训练计划
+        </button>
+        <button onClick={() => { setGenMode('select'); setAiResponse(''); }} className="w-full py-2 text-sm text-slate-500">返回</button>
+      </div>
+    );
+  }
+
+  // ====== API Loading ======
+  if (genMode === 'api-loading') {
+    return (
+      <div className="text-center py-12 space-y-3">
+        <div className="w-10 h-10 border-2 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto" />
+        <p className="text-slate-600 font-medium">AI 正在分析你的数据...</p>
+        <p className="text-xs text-slate-400">用 DeepSeek 生成个性化训练计划</p>
+      </div>
+    );
+  }
+
+  // ====== Plan Display ======
+  if (!dailyPlan) {
+    return <div className="text-center py-8 text-slate-400">暂无训练计划</div>;
+  }
+
   const signal = signalStyles[dailyPlan.bodySignal] || signalStyles.green;
 
   return (
@@ -289,7 +280,9 @@ export default function TrainingPage() {
         <div key={block.title} className={`bg-white rounded-xl p-4 shadow-sm border-l-4 ${block.color}`}>
           <h3 className="font-medium text-slate-700 mb-3">{block.title}</h3>
           <div className="space-y-3">
-            {block.items.map((item, i) => (
+            {block.items.length === 0 ? (
+              <p className="text-xs text-slate-400 italic">今日此项休息</p>
+            ) : block.items.map((item, i) => (
               <div key={i} className="flex items-start gap-3">
                 <span className="w-5 h-5 rounded-full bg-slate-100 text-slate-400 text-[10px] flex items-center justify-center shrink-0 mt-0.5">
                   {i + 1}
@@ -311,7 +304,6 @@ export default function TrainingPage() {
         </div>
       ))}
 
-      {/* Complete Button */}
       {!dailyPlan.completed && !todaySession ? (
         <div className="bg-white rounded-xl p-4 shadow-sm space-y-3">
           <p className="text-sm font-medium text-slate-700">完成训练后打卡</p>
