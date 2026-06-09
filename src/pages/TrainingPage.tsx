@@ -95,8 +95,9 @@ export default function TrainingPage() {
   const today = new Date().toISOString().split('T')[0];
   const planRef = useRef<HTMLDivElement>(null);
 
+  const [selectedDate, setSelectedDate] = useState(today);
   const [dailyPlan, setDailyPlan] = useState<DailyPlan | null>(null);
-  const [todaySession, setTodaySession] = useState<TrainingSession | null>(null);
+  const [dateSession, setDateSession] = useState<TrainingSession | null>(null);
   const [bodyMetrics, setBodyMetrics] = useState<BodyMetrics | null>(null);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
@@ -115,19 +116,29 @@ export default function TrainingPage() {
   const aiConfig = getAIConfig();
   const hasAPIKey = aiConfig.mode === 'api' && aiConfig.apiKey;
 
-  useEffect(() => { loadToday(); }, []);
+  const isToday = selectedDate === today;
+  const isPast = selectedDate < today;
 
-  async function loadToday() {
-    const metrics = await db.bodyMetrics.where('date').equals(today).first();
+  useEffect(() => { loadDate(selectedDate); }, [selectedDate]);
+
+  async function loadDate(date: string) {
+    setLoading(true);
+    const metrics = await db.bodyMetrics.where('date').equals(date).first();
     setBodyMetrics(metrics || null);
-    const plan = await db.dailyPlans.where('date').equals(today).first();
+    const plan = await db.dailyPlans.where('date').equals(date).first();
     setDailyPlan(plan || null);
-    if (plan) {
-      resetChecked(plan);
-    }
-    const session = await db.trainingSessions.where('date').equals(today).first();
-    setTodaySession(session || null);
+    if (plan) resetChecked(plan);
+    const session = await db.trainingSessions.where('date').equals(date).first();
+    setDateSession(session || null);
     setLoading(false);
+  }
+
+  function changeDate(days: number) {
+    const d = new Date(selectedDate);
+    d.setDate(d.getDate() + days);
+    setSelectedDate(d.toISOString().split('T')[0]);
+    setGenMode('idle');
+    setGenerating(false);
   }
 
   function resetChecked(_plan: DailyPlan) {
@@ -140,6 +151,7 @@ export default function TrainingPage() {
   }
 
   async function savePlan(plan: DailyPlan) {
+    plan.date = selectedDate;
     plan.macroCycleId = currentMacroCycle?.id || 0;
     const id = await db.dailyPlans.add(plan);
     plan.id = id;
@@ -147,23 +159,23 @@ export default function TrainingPage() {
     resetChecked(plan);
     setGenMode('idle');
     setGenerating(false);
-    // Scroll to plan
     setTimeout(() => planRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
   }
 
   // ─── Generation methods ───
-  const macroCycle = currentMacroCycle || { phase: 'strength_base' as const, weekNumber: 1, startDate: today, endDate: today };
+  const macroCycle = currentMacroCycle || { phase: 'strength_base' as const, weekNumber: 1, startDate: selectedDate, endDate: selectedDate };
 
   async function useRuleEngine() {
-    if (!bodyMetrics) return;
+    if (!bodyMetrics && isToday) return;
     setGenerating(true);
-    const plan = getFallbackPlan({ assessment: initialAssessment, report: assessmentReport, bodyMetrics, macroCycle, trainingMode });
+    const plan = getFallbackPlan({ assessment: initialAssessment, report: assessmentReport, bodyMetrics: bodyMetrics || { date: selectedDate, weight: initialAssessment?.weight || 70, sleepHours: 7, sleepQuality: 3, fatigueLevel: 5, soreAreas: [], playedVolleyball: false }, macroCycle, trainingMode });
     await savePlan(plan);
   }
 
   function startManual() {
-    if (!bodyMetrics) return;
-    setPrompt(buildPlanPrompt({ assessment: initialAssessment, report: assessmentReport, bodyMetrics, macroCycle, trainingMode }));
+    const m = bodyMetrics || { date: selectedDate, weight: initialAssessment?.weight || 70, sleepHours: 7, sleepQuality: 3, fatigueLevel: 5, soreAreas: [], playedVolleyball: false };
+    if (!bodyMetrics && !isToday) return;
+    setPrompt(buildPlanPrompt({ assessment: initialAssessment, report: assessmentReport, bodyMetrics: bodyMetrics || m, macroCycle, trainingMode }));
     setGenMode('manual-prompt');
   }
 
@@ -174,7 +186,7 @@ export default function TrainingPage() {
 
   async function pasteResponse() {
     if (!aiResponse.trim()) return;
-    const plan = parsePlanResponse(aiResponse, today);
+    const plan = parsePlanResponse(aiResponse, selectedDate);
     if (plan) {
       await savePlan(plan);
       setAiResponse('');
@@ -184,23 +196,48 @@ export default function TrainingPage() {
   }
 
   async function useAPI() {
-    if (!bodyMetrics || !hasAPIKey) return;
+    if (!hasAPIKey) return;
     setGenerating(true);
-    const plan = await generatePlanViaAPI({ assessment: initialAssessment, report: assessmentReport, bodyMetrics, macroCycle, trainingMode });
-    if (plan) {
-      await savePlan(plan);
-    } else {
-      useRuleEngine();
-    }
+    const m = bodyMetrics || { date: selectedDate, weight: initialAssessment?.weight || 70, sleepHours: 7, sleepQuality: 3, fatigueLevel: 5, soreAreas: [], playedVolleyball: false };
+    const plan = await generatePlanViaAPI({ assessment: initialAssessment, report: assessmentReport, bodyMetrics: bodyMetrics || m, macroCycle, trainingMode });
+    if (plan) await savePlan(plan);
+    else await useRuleEngine();
   }
 
   async function handleComplete(rpe: number) {
     if (!dailyPlan) return;
-    const session: TrainingSession = { date: today, dailyPlanId: dailyPlan.id || 0, completed: true, actualRPE: rpe };
+    const session: TrainingSession = { date: selectedDate, dailyPlanId: dailyPlan.id || 0, completed: true, actualRPE: rpe };
     const id = await db.trainingSessions.add(session);
-    setTodaySession({ ...session, id });
+    setDateSession({ ...session, id });
     await db.dailyPlans.update(dailyPlan.id!, { completed: true });
     setDailyPlan({ ...dailyPlan, completed: true });
+  }
+
+  async function markAsRestDay() {
+    if (!confirm(`将 ${selectedDate} 标记为休息日？`)) return;
+    const plan: DailyPlan = {
+      date: selectedDate, macroCycleId: currentMacroCycle?.id || 0,
+      bodySignal: 'red', intensityPercent: 30,
+      warmup: buildCooldownWorkaround('red'),
+      prehab: [], mainWorkout: [], volleyballSpecific: [],
+      cooldown: [],
+      notes: '🛌 这天标记为休息日。好好恢复，比勉强训练更有价值。',
+      completed: false,
+    };
+    await savePlan(plan);
+  }
+
+  function buildCooldownWorkaround(signal: string): any[] {
+    if (signal === 'red') return [{ name: '轻柔拉伸', duration: '10min', notes: '全身轻柔拉伸放松' }];
+    return [];
+  }
+
+  async function deletePlan() {
+    if (!dailyPlan || !confirm('删除当前计划？')) return;
+    await db.dailyPlans.delete(dailyPlan.id!);
+    setDailyPlan(null);
+    setGenerating(false);
+    setGenMode('idle');
   }
 
   function toggleCheck(section: string, idx: number) {
@@ -222,14 +259,34 @@ export default function TrainingPage() {
     return <div className="text-center py-12"><div className="w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-3" /><p className="text-slate-400 text-sm">加载中...</p></div>;
   }
 
-  if (!bodyMetrics) {
+  // Common date nav bar
+  const dateNav = (
+    <div className="flex items-center justify-between bg-white rounded-xl p-2 shadow-sm">
+      <button onClick={() => changeDate(-1)} className="px-3 py-1 text-slate-500 hover:text-slate-700 text-lg">◀</button>
+      <div className="text-center">
+        <input
+          type="date"
+          value={selectedDate}
+          onChange={(e) => setSelectedDate(e.target.value)}
+          className="text-sm font-bold text-slate-700 bg-transparent text-center cursor-pointer border-none focus:outline-none"
+        />
+        <p className="text-[10px] text-slate-400">
+          {isToday ? '今天' : isPast ? `${Math.round((new Date().getTime() - new Date(selectedDate).getTime()) / 86400000)}天前` : `${Math.round((new Date(selectedDate).getTime() - new Date().getTime()) / 86400000)}天后`}
+        </p>
+      </div>
+      <button onClick={() => changeDate(+1)} className="px-3 py-1 text-slate-500 hover:text-slate-700 text-lg">▶</button>
+    </div>
+  );
+
+  if (!bodyMetrics && isToday) {
     return (
       <div className="space-y-4">
-        <h2 className="text-lg font-bold text-slate-800">🏋️ 今日训练</h2>
+        <h2 className="text-lg font-bold text-slate-800">🏋️ 训练</h2>
+        {dateNav}
         <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-6 text-center">
           <p className="text-3xl mb-3">📝</p>
           <p className="text-yellow-700 font-bold mb-2">还没有今日身体数据</p>
-          <p className="text-sm text-yellow-600 mb-4">系统需要知道你今天的身体状态，才能生成适合的训练计划</p>
+          <p className="text-sm text-yellow-600 mb-4">填写后系统才能生成最适合的训练计划</p>
           <Link to="/body" className="inline-block px-6 py-3 bg-blue-600 text-white rounded-xl text-sm font-bold hover:bg-blue-700 shadow-sm">
             去填写身体状态 →
           </Link>
@@ -281,13 +338,23 @@ export default function TrainingPage() {
     // Main selection screen
     return (
       <div className="space-y-4">
-        <h2 className="text-lg font-bold text-slate-800">🏋️ 今日训练</h2>
-        <div className="bg-white rounded-xl p-3 shadow-sm flex gap-3 text-center text-xs">
-          <div><p className="text-slate-400">体重</p><p className="font-bold text-slate-700">{bodyMetrics.weight}kg</p></div>
-          <div><p className="text-slate-400">疲劳</p><p className={`font-bold ${bodyMetrics.fatigueLevel >= 7 ? 'text-red-600' : bodyMetrics.fatigueLevel >= 5 ? 'text-yellow-600' : 'text-green-600'}`}>{bodyMetrics.fatigueLevel}/10</p></div>
-          <div><p className="text-slate-400">睡眠</p><p className={`font-bold ${bodyMetrics.sleepHours < 6 ? 'text-red-600' : 'text-green-600'}`}>{bodyMetrics.sleepHours}h</p></div>
-          <div><p className="text-slate-400">周期</p><p className="font-bold text-blue-600">{getPhaseName(macroCycle.phase).slice(0,4)}W{macroCycle.weekNumber}</p></div>
-        </div>
+        <h2 className="text-lg font-bold text-slate-800">🏋️ 训练</h2>
+        {dateNav}
+
+        {bodyMetrics && (
+          <div className="bg-white rounded-xl p-3 shadow-sm flex gap-3 text-center text-xs">
+            <div><p className="text-slate-400">体重</p><p className="font-bold text-slate-700">{bodyMetrics.weight}kg</p></div>
+            <div><p className="text-slate-400">疲劳</p><p className={`font-bold ${bodyMetrics.fatigueLevel >= 7 ? 'text-red-600' : bodyMetrics.fatigueLevel >= 5 ? 'text-yellow-600' : 'text-green-600'}`}>{bodyMetrics.fatigueLevel}/10</p></div>
+            <div><p className="text-slate-400">睡眠</p><p className={`font-bold ${bodyMetrics.sleepHours < 6 ? 'text-red-600' : 'text-green-600'}`}>{bodyMetrics.sleepHours}h</p></div>
+            <div><p className="text-slate-400">周期</p><p className="font-bold text-blue-600">{getPhaseName(macroCycle.phase).slice(0,4)}W{macroCycle.weekNumber}</p></div>
+          </div>
+        )}
+
+        {!isToday && (
+          <div className={`p-3 rounded-lg text-xs ${isPast ? 'bg-orange-50 text-orange-700' : 'bg-blue-50 text-blue-700'}`}>
+            {isPast ? `⚠️ ${selectedDate} 是过去的日期。可以补录训练或标记为休息日。` : `📅 ${selectedDate} 是未来的日期。可以提前规划训练。`}
+          </div>
+        )}
 
         <p className="text-sm text-slate-600 font-medium">选择训练计划生成方式：</p>
 
@@ -334,6 +401,20 @@ export default function TrainingPage() {
             ⚡ 想用一键自动？去设置配 DeepSeek Key（一次不到1分钱）
           </Link>
         )}
+
+        {isToday && (
+          <button onClick={markAsRestDay}
+            className="w-full py-3 border-2 border-dashed border-slate-300 text-slate-500 rounded-xl text-sm font-medium hover:border-red-300 hover:text-red-500 transition-colors">
+            🛌 今天休息，标记为休息日
+          </button>
+        )}
+
+        {isPast && (
+          <button onClick={markAsRestDay}
+            className="w-full py-2 border border-dashed border-slate-200 text-slate-400 rounded-lg text-xs hover:border-red-200 hover:text-red-400">
+            {selectedDate} 标记为休息日（跳过训练）
+          </button>
+        )}
       </div>
     );
   }
@@ -360,10 +441,8 @@ export default function TrainingPage() {
 
   return (
     <div className="space-y-4" ref={planRef}>
-      <div className="flex items-center justify-between">
-        <h2 className="text-lg font-bold text-slate-800">🏋️ 今日训练</h2>
-        <span className="text-xs text-slate-400">{today}</span>
-      </div>
+      <h2 className="text-lg font-bold text-slate-800">🏋️ 训练</h2>
+      {dateNav}
 
       {/* Signal badge */}
       <SignalBadge signal={plan.bodySignal} pct={plan.intensityPercent} />
@@ -408,7 +487,7 @@ export default function TrainingPage() {
       )}
 
       {/* Complete / Already done */}
-      {!plan.completed && !todaySession ? (
+      {!plan.completed && !dateSession ? (
         <div className="bg-white rounded-xl p-4 shadow-sm space-y-3">
           <p className="text-sm font-bold text-slate-700">✅ 完成训练后打卡</p>
           <p className="text-xs text-slate-400">主观疲劳感知评级 RPE（1=极轻松，10=极限）</p>
@@ -420,19 +499,13 @@ export default function TrainingPage() {
               </button>
             ))}
           </div>
-          <button onClick={() => {
-            if (confirm('删除当前计划，重新生成？')) {
-              db.dailyPlans.delete(plan.id!);
-              setDailyPlan(null);
-              setGenerating(false);
-            }
-          }} className="w-full py-2 text-xs text-slate-400 hover:text-red-500">🔄 重新生成</button>
+          <button onClick={deletePlan} className="w-full py-2 text-xs text-slate-400 hover:text-red-500">🔄 重新生成</button>
         </div>
       ) : (
         <div className="bg-green-50 border border-green-200 rounded-xl p-4 text-center">
-          <p className="text-green-700 font-bold text-lg">✅ 今日训练已完成</p>
-          {todaySession?.actualRPE && <p className="text-sm text-green-600 mt-1">实际 RPE: {todaySession.actualRPE}/10</p>}
-          <p className="text-xs text-green-500 mt-2">干得漂亮！💪</p>
+          <p className="text-green-700 font-bold text-lg">✅ {isToday ? '今日' : selectedDate} 训练已完成</p>
+          {dateSession?.actualRPE && <p className="text-sm text-green-600 mt-1">实际 RPE: {dateSession.actualRPE}/10</p>}
+          <button onClick={deletePlan} className="text-xs text-slate-400 hover:text-red-500 mt-2 underline">删除此计划，重新生成</button>
         </div>
       )}
     </div>
