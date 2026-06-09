@@ -172,34 +172,83 @@ export function parseReportResponse(raw: string): AssessmentReport | null {
   }
 }
 
-// ============ API Mode ============
+// ============ API Mode — direct DeepSeek call ============
+
+const DETAILED_SYSTEM_PROMPT = `你是拥有20年经验的顶级排球体能教练+运动科学博士。你必须生成极其详细的个性化训练计划。
+
+返回纯JSON（不要markdown）：
+{
+  "bodySignal": "green|yellow|red",
+  "intensityPercent": 数字,
+  "analysis": "150字专业分析：身体状态+周期目标+风险提示",
+  "warmup": [{"name":"动作","sets":组数,"reps":"次数","duration":"时长","rest":"秒","notes":"要点"}],
+  "prehab": [{"name":"动作","sets":组数,"reps":"次数","rest":"秒","notes":"防什么伤"}],
+  "mainWorkout": [{"name":"完整动作名","sets":组数,"reps":"次数","load":"基于1RM的kg数+百分比如85kg(75%1RM)","rest":"秒","rpe":"RPE X","notes":"动作要点+排球价值"}],
+  "volleyballSpecific": [{"name":"内容","sets":组数,"reps":"次数","duration":"时长","notes":"要点"}],
+  "cooldown": [{"name":"拉伸动作","duration":"每侧X秒","notes":"说明"}],
+  "dietRecommendation": {"protein":"g","carbs":"g","water":"L","preWorkout":"建议","postWorkout":"建议","generalTips":"要点"},
+  "recoveryRecommendation": "100字恢复方案",
+  "notes": "综合备注"
+}
+
+规则：负重必须写具体kg数+百分比，不能写"中等重量"。红灯→纯恢复无负重。黄灯→70%强度。prehab必须匹配运动员风险部位。热身和放松必须列出每个动作。`;
 
 export async function generatePlanViaAPI(context: Parameters<typeof buildPlanContext>[0]): Promise<DailyPlan | null> {
   const config = getAIConfig();
   if (!config.apiKey) return null;
 
+  const userPrompt = buildPlanContext(context);
+
   try {
-    const response = await fetch('/.netlify/functions/generate-plan', {
+    const endpoint = config.apiEndpoint || 'https://api.deepseek.com/v1/chat/completions';
+    const model = config.modelName || 'deepseek-chat';
+
+    const response = await fetch(endpoint, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...config, ...context }),
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${config.apiKey}` },
+      body: JSON.stringify({
+        model,
+        messages: [
+          { role: 'system', content: DETAILED_SYSTEM_PROMPT },
+          { role: 'user', content: `请为以下运动员生成今日训练计划。必须极其详细。\n\n${userPrompt}` },
+        ],
+        temperature: 0.7,
+        max_tokens: 4096,
+      }),
     });
-    if (!response.ok) return null;
+
+    if (!response.ok) {
+      const errText = await response.text();
+      console.error('AI API error:', response.status, errText);
+      return null;
+    }
+
     const data = await response.json();
+    const content = data.choices?.[0]?.message?.content;
+    if (!content) return null;
+
+    const cleaned = content.replace(/```json\s*/gi, '').replace(/```\s*/g, '').replace(/^[\s\S]*?\{/, '{').replace(/\}[\s\S]*$/, '}').trim();
+    const parsed = JSON.parse(cleaned);
+
+    const dietNotes = parsed.dietRecommendation
+      ? `\n🥗 饮食：蛋白质${parsed.dietRecommendation.protein}g · 碳水${parsed.dietRecommendation.carbs}g · 水${parsed.dietRecommendation.water}L\n训练前：${parsed.dietRecommendation.preWorkout}\n训练后：${parsed.dietRecommendation.postWorkout}\n💡${parsed.dietRecommendation.generalTips}`
+      : '';
+
     return {
       date: context.bodyMetrics.date,
       macroCycleId: 0,
-      bodySignal: data.bodySignal || 'green',
-      intensityPercent: data.intensityPercent || 100,
-      warmup: data.warmup || [],
-      prehab: data.prehab || [],
-      mainWorkout: data.mainWorkout || [],
-      volleyballSpecific: data.volleyballSpecific || [],
-      cooldown: data.cooldown || [],
-      notes: `🤖 AI自动生成\n${[data.analysis, data.notes, data.recoveryRecommendation ? `💡${data.recoveryRecommendation}` : ''].filter(Boolean).join('\n')}`,
+      bodySignal: parsed.bodySignal || 'green',
+      intensityPercent: parsed.intensityPercent || 100,
+      warmup: parsed.warmup || [],
+      prehab: parsed.prehab || [],
+      mainWorkout: parsed.mainWorkout || [],
+      volleyballSpecific: parsed.volleyballSpecific || [],
+      cooldown: parsed.cooldown || [],
+      notes: `🤖 AI 智能生成\n${parsed.analysis || ''}\n${parsed.notes || ''}${dietNotes}\n${parsed.recoveryRecommendation ? `\n🛌 ${parsed.recoveryRecommendation}` : ''}`,
       completed: false,
     };
-  } catch {
+  } catch (err: any) {
+    console.error('AI plan generation failed:', err.message);
     return null;
   }
 }
@@ -207,14 +256,36 @@ export async function generatePlanViaAPI(context: Parameters<typeof buildPlanCon
 export async function generateReportViaAPI(assessment: InitialAssessment): Promise<AssessmentReport | null> {
   const config = getAIConfig();
   if (!config.apiKey) return null;
+
+  const vj = assessment.maxApproachReach - assessment.standingReach;
+  const rs = assessment.squatMax / assessment.weight;
+  const pc = assessment.deadliftMax / assessment.squatMax;
+
+  const prompt = `你是排球运动表现分析专家。分析体测数据生成报告（纯JSON）：
+
+身高${assessment.height}cm 体重${assessment.weight}kg 站立摸高${assessment.standingReach}cm
+深蹲1RM:${assessment.squatMax}kg(相对${rs.toFixed(1)}x) 硬拉1RM:${assessment.deadliftMax}kg(后链比${pc.toFixed(2)}) 卧推1RM:${assessment.benchMax}kg
+助跑摸高:${assessment.maxApproachReach}cm 弹跳:${vj}cm
+伤病:${assessment.injuryHistory?.join('、')||'无'} 活动度:过顶深蹲${assessment.overheadSquatScore}/3肩${assessment.shoulderMobilityScore}/3踝${assessment.ankleMobilityScore}/3髋${assessment.thomasTestScore}/3
+
+返回JSON：{"verticalJumpHeight":${vj},"relativeSquatStrength":${rs.toFixed(1)},"jumpRating":"green|yellow|red","strengthBalance":{"squat":${assessment.squatMax},"deadlift":${assessment.deadliftMax},"bench":${assessment.benchMax}},"posteriorChainRatio":${pc.toFixed(2)},"riskAreas":["部位"],"recommendations":["建议"],"suggestedStartPhase":"strength_base|power_conversion|explosive_peak","suggestedTrainingLoad":75,"suggestedJumpVolume":"low|medium|high","detailedAnalysis":"200字分析"}`;
+
   try {
-    const res = await fetch('/.netlify/functions/generate-report', {
+    const endpoint = config.apiEndpoint || 'https://api.deepseek.com/v1/chat/completions';
+    const model = config.modelName || 'deepseek-chat';
+
+    const res = await fetch(endpoint, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...config, ...assessment }),
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${config.apiKey}` },
+      body: JSON.stringify({ model, messages: [{ role: 'user', content: prompt }], temperature: 0.5, max_tokens: 1500 }),
     });
     if (!res.ok) return null;
-    return await res.json();
+    const data = await res.json();
+    const content = data.choices?.[0]?.message?.content;
+    if (!content) return null;
+
+    const cleaned = content.replace(/```json\s*/gi, '').replace(/```\s*/g, '').replace(/^[\s\S]*?\{/, '{').replace(/\}[\s\S]*$/, '}').trim();
+    return JSON.parse(cleaned) as AssessmentReport;
   } catch {
     return null;
   }
