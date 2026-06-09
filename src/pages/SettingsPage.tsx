@@ -187,10 +187,24 @@ export default function SettingsPage() {
                 className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white" />
             </div>
 
-            <button onClick={handleSave}
-              className="w-full py-2.5 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700">
-              {aiConfig.apiKey ? '✅ 保存配置' : '🔑 粘贴 Key 并保存'}
-            </button>
+            <div className="flex gap-2">
+              <button onClick={handleSave}
+                className="flex-1 py-2.5 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700">
+                {aiConfig.apiKey ? '✅ 保存' : '🔑 保存'}
+              </button>
+              <button onClick={async () => {
+                try {
+                  const res = await fetch('/.netlify/functions/health');
+                  const data = await res.json();
+                  alert(`✅ API 服务正常\n\n端点: ${data.endpoints?.generatePlan || 'N/A'}\n时间: ${data.time || 'N/A'}`);
+                } catch (e: any) {
+                  alert(`❌ API 服务不可用\n\n${e.message}\n\n请确认已部署到 Netlify（非本地开发）`);
+                }
+              }}
+                className="px-3 py-2 border border-slate-200 text-slate-600 rounded-lg text-xs hover:bg-slate-50">
+                🩺 测试连接
+              </button>
+            </div>
 
             {aiConfig.apiKey && (
               <p className="text-xs text-green-600 text-center">✅ API 已配置 · 训练页一键自动生成</p>
