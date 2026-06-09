@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { db } from '../db';
 import { useAppStore } from '../stores/appStore';
 import { buildPlanPrompt, parsePlanResponse, generatePlanViaAPI, getAIConfig, getFallbackPlan } from '../utils/aiEngine';
@@ -92,10 +92,12 @@ function BlockSection({ title, icon, color, items, checked, onToggle, expanded, 
 // ─── MAIN COMPONENT ───
 export default function TrainingPage() {
   const { initialAssessment, assessmentReport, currentMacroCycle, trainingMode } = useAppStore();
+  const [searchParams] = useSearchParams();
   const today = new Date().toISOString().split('T')[0];
+  const urlDate = searchParams.get('date');
   const planRef = useRef<HTMLDivElement>(null);
 
-  const [selectedDate, setSelectedDate] = useState(today);
+  const [selectedDate, setSelectedDate] = useState(urlDate || today);
   const [dailyPlan, setDailyPlan] = useState<DailyPlan | null>(null);
   const [dateSession, setDateSession] = useState<TrainingSession | null>(null);
   const [bodyMetrics, setBodyMetrics] = useState<BodyMetrics | null>(null);

@@ -1,195 +1,172 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { db } from '../db';
 import { useAppStore } from '../stores/appStore';
-import type { DailyPlan, MatchLog } from '../types';
+import { getPhaseName } from '../utils/trainingEngine';
+import type { DailyPlan, TrainingSession } from '../types';
 
 const phaseColors: Record<string, string> = {
-  strength_base: 'bg-blue-100 border-blue-300',
-  power_conversion: 'bg-orange-100 border-orange-300',
-  explosive_peak: 'bg-red-100 border-red-300',
-  deload: 'bg-green-100 border-green-300',
-};
-
-const phaseLabels: Record<string, string> = {
-  strength_base: '基础力量',
-  power_conversion: '力量转化',
-  explosive_peak: '爆发力',
-  deload: '减载恢复',
+  strength_base: 'bg-blue-100 text-blue-700',
+  power_conversion: 'bg-orange-100 text-orange-700',
+  explosive_peak: 'bg-red-100 text-red-700',
+  deload: 'bg-green-100 text-green-700',
 };
 
 export default function CalendarPage() {
-  const { currentMacroCycle } = useAppStore();
-  const [viewMode, setViewMode] = useState<'week' | 'month'>('week');
-  const [currentDate, setCurrentDate] = useState(new Date());
-  const [plans, setPlans] = useState<DailyPlan[]>([]);
-  const [matches, setMatches] = useState<MatchLog[]>([]);
-  const [sessions, setSessions] = useState<Set<string>>(new Set());
-
-  useEffect(() => {
-    loadData();
-  }, [currentDate]);
-
-  async function loadData() {
-    const year = currentDate.getFullYear();
-    const month = currentDate.getMonth();
-    const start = new Date(year, month, 1).toISOString().split('T')[0];
-    const end = new Date(year, month + 1, 0).toISOString().split('T')[0];
-
-    const p = await db.dailyPlans.where('date').between(start, end, true, true).toArray();
-    setPlans(p);
-    const m = await db.matchLogs.where('date').between(start, end, true, true).toArray();
-    setMatches(m);
-    const s = await db.trainingSessions.where('date').between(start, end, true, true).toArray();
-    setSessions(new Set(s.filter((x) => x.completed).map((x) => x.date)));
-  }
-
+  const navigate = useNavigate();
+  const { currentMacroCycle, trainingMode } = useAppStore();
   const today = new Date().toISOString().split('T')[0];
 
-  // Generate days for the current month view
-  const month = currentDate.getMonth();
-  const daysInMonth = new Date(currentDate.getFullYear(), month + 1, 0).getDate();
-  const firstDay = new Date(currentDate.getFullYear(), month, 1).getDay();
+  const [viewDate, setViewDate] = useState(new Date());
+  const [plans, setPlans] = useState<Map<string, DailyPlan>>(new Map());
+  const [sessions, setSessions] = useState<Map<string, TrainingSession>>(new Map());
 
-  // Week view: current week
-  const startOfWeek = new Date(currentDate);
-  startOfWeek.setDate(currentDate.getDate() - currentDate.getDay());
-  const weekDays = Array.from({ length: 7 }, (_, i) => {
-    const d = new Date(startOfWeek);
-    d.setDate(startOfWeek.getDate() + i);
-    return d;
-  });
+  const year = viewDate.getFullYear();
+  const month = viewDate.getMonth();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const startDay = new Date(year, month, 1).getDay();
+
+  useEffect(() => { loadMonth(); }, [viewDate]);
+
+  async function loadMonth() {
+    const first = new Date(year, month, 1).toISOString().split('T')[0];
+    const last = new Date(year, month + 1, 0).toISOString().split('T')[0];
+
+    const p = await db.dailyPlans.where('date').between(first, last, true, true).toArray();
+    const planMap = new Map<string, DailyPlan>();
+    p.forEach((x) => planMap.set(x.date, x));
+    setPlans(planMap);
+
+    const s = await db.trainingSessions.where('date').between(first, last, true, true).toArray();
+    const sessMap = new Map<string, TrainingSession>();
+    s.forEach((x) => sessMap.set(x.date, x));
+    setSessions(sessMap);
+  }
+
+  function changeMonth(delta: number) {
+    setViewDate(new Date(year, month + delta, 1));
+  }
+
+  function getDayStatus(dateStr: string) {
+    const plan = plans.get(dateStr);
+    const session = sessions.get(dateStr);
+    const isToday = dateStr === today;
+    return { plan, session, isToday, hasPlan: !!plan, completed: session?.completed || plan?.completed };
+  }
 
   const weekDayNames = ['日', '一', '二', '三', '四', '五', '六'];
 
-  function getDayClass(dateStr: string) {
-    const isToday = dateStr === today;
-    const hasPlan = plans.some((p) => p.date === dateStr);
-    const hasMatch = matches.some((m) => m.date === dateStr);
-    const isCompleted = sessions.has(dateStr);
-    let cls = 'flex flex-col items-center p-1 rounded-lg text-xs cursor-pointer hover:bg-slate-100';
-    if (isToday) cls += ' ring-2 ring-blue-400';
-    if (isCompleted) cls += ' bg-green-50';
-    return { cls, hasPlan, hasMatch, isCompleted };
-  }
-
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-slate-800">周期日历</h2>
-        <div className="flex bg-slate-100 rounded-lg p-0.5">
-          <button onClick={() => setViewMode('week')}
-            className={`px-3 py-1 rounded-md text-xs font-medium ${viewMode === 'week' ? 'bg-white shadow-sm text-slate-700' : 'text-slate-500'}`}>周</button>
-          <button onClick={() => setViewMode('month')}
-            className={`px-3 py-1 rounded-md text-xs font-medium ${viewMode === 'month' ? 'bg-white shadow-sm text-slate-700' : 'text-slate-500'}`}>月</button>
-        </div>
-      </div>
-
-      {/* Current Phase Badge */}
+      {/* Phase banner */}
       {currentMacroCycle && (
-        <div className={`p-3 rounded-xl border ${phaseColors[currentMacroCycle.phase]}`}>
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium">{phaseLabels[currentMacroCycle.phase]}</p>
-              <p className="text-xs opacity-70">第 {currentMacroCycle.weekNumber} 周</p>
-            </div>
-            <div className="text-xs opacity-70">
-              {currentMacroCycle.startDate} ~ {currentMacroCycle.endDate}
-            </div>
-          </div>
+        <div className={`px-4 py-2 rounded-xl ${phaseColors[currentMacroCycle.phase]}`}>
+          <p className="text-sm font-bold">{getPhaseName(currentMacroCycle.phase)} · 第{currentMacroCycle.weekNumber}周</p>
+          <p className="text-xs opacity-70">{trainingMode === 'school' ? '学期模式 2-3次/周' : '假期模式 4-5次/周'}</p>
         </div>
       )}
 
-      {/* Calendar Grid */}
-      <div className="bg-white rounded-xl p-4 shadow-sm">
-        {/* Month nav */}
-        <div className="flex items-center justify-between mb-4">
-          <button onClick={() => {
-            const d = new Date(currentDate);
-            d.setMonth(viewMode === 'month' ? d.getMonth() - 1 : d.getDate() - 7);
-            setCurrentDate(d);
-          }} className="text-slate-400 hover:text-slate-600">◀</button>
-          <p className="text-sm font-medium text-slate-700">
-            {currentDate.getFullYear()}年{currentDate.getMonth() + 1}月
-          </p>
-          <button onClick={() => {
-            const d = new Date(currentDate);
-            d.setMonth(viewMode === 'month' ? d.getMonth() + 1 : d.getDate() + 7);
-            setCurrentDate(d);
-          }} className="text-slate-400 hover:text-slate-600">▶</button>
+      {/* Month nav */}
+      <div className="flex items-center justify-between bg-white rounded-xl px-4 py-3 shadow-sm">
+        <button onClick={() => changeMonth(-1)} className="text-slate-400 hover:text-slate-600 text-lg px-2">◀</button>
+        <p className="font-bold text-slate-700">{year}年{month + 1}月</p>
+        <button onClick={() => changeMonth(1)} className="text-slate-400 hover:text-slate-600 text-lg px-2">▶</button>
+      </div>
+
+      {/* Calendar grid */}
+      <div className="bg-white rounded-xl shadow-sm overflow-hidden">
+        {/* Weekday headers */}
+        <div className="grid grid-cols-7 border-b border-slate-100">
+          {weekDayNames.map((name, i) => (
+            <div key={i} className={`py-2 text-center text-xs font-medium ${i === 0 || i === 6 ? 'text-slate-400' : 'text-slate-600'}`}>
+              {name}
+            </div>
+          ))}
         </div>
 
-        {viewMode === 'week' ? (
-          /* Week View */
-          <div className="grid grid-cols-7 gap-1">
-            {weekDayNames.map((name) => (
-              <div key={name} className="text-center text-xs text-slate-400 py-1">{name}</div>
-            ))}
-            {weekDays.map((day) => {
-              const dateStr = day.toISOString().split('T')[0];
-              const { cls, hasPlan, hasMatch, isCompleted } = getDayClass(dateStr);
-              return (
-                <div key={dateStr} className={cls}>
-                  <span className={`font-medium ${dateStr === today ? 'text-blue-600' : 'text-slate-700'}`}>
-                    {day.getDate()}
-                  </span>
-                  <div className="flex gap-0.5 mt-0.5">
-                    {hasPlan && <span className="text-[8px]">🏋️</span>}
-                    {hasMatch && <span className="text-[8px]">🏐</span>}
-                    {isCompleted && <span className="text-[8px]">✅</span>}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        ) : (
-          /* Month View */
-          <div className="grid grid-cols-7 gap-1">
-            {weekDayNames.map((name) => (
-              <div key={name} className="text-center text-xs text-slate-400 py-1">{name}</div>
-            ))}
-            {Array.from({ length: firstDay }, (_, i) => (
-              <div key={`empty-${i}`} />
-            ))}
-            {Array.from({ length: daysInMonth }, (_, i) => {
-              const dateStr = `${currentDate.getFullYear()}-${String(month + 1).padStart(2, '0')}-${String(i + 1).padStart(2, '0')}`;
-              const { cls, hasPlan, hasMatch, isCompleted } = getDayClass(dateStr);
-              return (
-                <div key={dateStr} className={cls}>
-                  <span className={`font-medium text-[11px] ${dateStr === today ? 'text-blue-600' : 'text-slate-700'}`}>
-                    {i + 1}
-                  </span>
-                  <div className="flex gap-0.5">
-                    {hasPlan && <span className="text-[8px]">🏋️</span>}
-                    {hasMatch && <span className="text-[8px]">🏐</span>}
-                    {isCompleted && <span className="text-[8px]">✅</span>}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
+        {/* Days */}
+        <div className="grid grid-cols-7">
+          {/* Empty cells before month start */}
+          {Array.from({ length: startDay }).map((_, i) => (
+            <div key={`e${i}`} className="aspect-square border-b border-r border-slate-50" />
+          ))}
+
+          {/* Month days */}
+          {Array.from({ length: daysInMonth }).map((_, i) => {
+            const day = i + 1;
+            const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+            const { isToday, hasPlan, completed } = getDayStatus(dateStr);
+            const isPast = dateStr < today;
+
+            let bg = 'hover:bg-blue-50';
+            let dot = null;
+            if (completed) { bg = 'bg-green-50 hover:bg-green-100'; dot = 'bg-green-500'; }
+            else if (hasPlan) { bg = 'bg-blue-50 hover:bg-blue-100'; dot = 'bg-blue-500'; }
+            else if (isPast) { bg = 'hover:bg-slate-50'; }
+
+            return (
+              <button
+                key={dateStr}
+                onClick={() => navigate(`/training?date=${dateStr}`)}
+                className={`aspect-square border-b border-r border-slate-50 flex flex-col items-center justify-center transition-colors ${bg} ${
+                  isToday ? 'ring-2 ring-blue-400 ring-inset' : ''
+                }`}
+              >
+                <span className={`text-sm font-medium ${isToday ? 'text-blue-600' : hasPlan && !completed ? 'text-blue-700' : 'text-slate-700'}`}>
+                  {day}
+                </span>
+                {dot && <div className={`w-1.5 h-1.5 rounded-full mt-0.5 ${dot}`} />}
+                {!dot && isPast && <div className="w-1.5 h-1.5 mt-0.5" />}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {/* Legend */}
-      <div className="bg-white rounded-xl p-4 shadow-sm">
-        <h3 className="text-sm font-medium text-slate-700 mb-2">图例</h3>
-        <div className="flex flex-wrap gap-3">
-          {Object.entries(phaseLabels).map(([key, label]) => (
-            <div key={key} className="flex items-center gap-1">
-              <div className={`w-3 h-3 rounded ${phaseColors[key]}`} />
-              <span className="text-xs text-slate-500">{label}</span>
-            </div>
-          ))}
-          <div className="flex items-center gap-1">
-            <span className="text-xs">🏋️ 训练日</span>
-          </div>
-          <div className="flex items-center gap-1">
-            <span className="text-xs">🏐 打球</span>
-          </div>
-          <div className="flex items-center gap-1">
-            <span className="text-xs">✅ 已完成</span>
-          </div>
+      <div className="bg-white rounded-xl p-4 shadow-sm flex flex-wrap gap-4 text-xs">
+        <div className="flex items-center gap-1.5">
+          <div className="w-2.5 h-2.5 rounded-full bg-blue-500" />
+          <span className="text-slate-600">有训练计划</span>
         </div>
+        <div className="flex items-center gap-1.5">
+          <div className="w-2.5 h-2.5 rounded-full bg-green-500" />
+          <span className="text-slate-600">已完成</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <div className="w-2.5 h-2.5 rounded-full ring-2 ring-blue-400" />
+          <span className="text-slate-600">今天</span>
+        </div>
+      </div>
+
+      {/* Quick actions */}
+      <div className="grid grid-cols-2 gap-2">
+        <button onClick={async () => {
+          if (!confirm(`将今天(${today})标记为休息日？`)) return;
+          const plan = await db.dailyPlans.where('date').equals(today).first();
+          if (plan) {
+            plan.bodySignal = 'red';
+            plan.intensityPercent = 30;
+            plan.notes = (plan.notes || '') + '\n\n🛌 已手动标记为休息日。';
+            plan.id = plan.id!;
+            await db.dailyPlans.put(plan);
+          } else {
+            await db.dailyPlans.add({
+              date: today, macroCycleId: currentMacroCycle?.id || 0,
+              bodySignal: 'red', intensityPercent: 30,
+              warmup: [{ name: '轻柔拉伸', duration: '10min', notes: '休息日主动恢复' }],
+              prehab: [], mainWorkout: [], volleyballSpecific: [],
+              cooldown: [], notes: '🛌 手动标记为休息日。', completed: false,
+            });
+          }
+          loadMonth();
+        }} className="py-3 bg-white rounded-xl shadow-sm border border-slate-200 text-slate-600 text-sm font-medium hover:border-red-300 hover:text-red-500">
+          🛌 今天休息
+        </button>
+        <button onClick={() => navigate('/settings')}
+          className="py-3 bg-white rounded-xl shadow-sm border border-slate-200 text-slate-600 text-sm font-medium hover:border-blue-300 hover:text-blue-500">
+          ⚙️ 训练设置
+        </button>
       </div>
     </div>
   );
