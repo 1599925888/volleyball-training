@@ -95,36 +95,44 @@ function buildPrehab(riskAreas: string[]): ExerciseBlock[] {
 function buildMainWorkout(
   phase: MacroCyclePhase, weekNumber: number, intensityMult: number,
   trainingMode: 'school' | 'holiday', squat1RM: number, dl1RM: number, bench1RM: number,
-  baseLoadPct: number,
+  baseLoadPct: number, dateStr: string,
 ): ExerciseBlock[] {
-  // Week progression: week 1=65%, week 2=72.5%, week 3=77.5%, week 4=80% (for strength phases)
   const weekMultiplier = weekNumber <= 1 ? 0.85 : weekNumber <= 2 ? 0.93 : weekNumber <= 3 ? 0.97 : 1.0;
   const loadPct = (baseLoadPct / 100) * weekMultiplier * intensityMult;
-
   const mainSets = trainingMode === 'school' ? 3 : 4;
   const numExercises = trainingMode === 'school' ? 4 : 6;
-
   const sWeight = formatWeight(squat1RM * loadPct);
   const dWeight = formatWeight(dl1RM * loadPct);
   const bWeight = formatWeight(bench1RM * loadPct);
   const pctLabel = Math.round(loadPct * 100);
+  const today = dateStr;
+
+  // Pick variants based on date for variety
+  const squatVar = pickFromPool(SQUAT_VARIANTS, today + 'sq', 1)[0];
+  const hingeVar = pickFromPool(HINGE_VARIANTS, today + 'hg', 1)[0];
+  const powerVar = pickFromPool(POWER_VARIANTS, today + 'pw', 1)[0];
+  const coreVar = pickFromPool(CORE_VARIANTS, today + 'cr', 1)[0];
+  const upperVar = pickFromPool(UPPER_VARIANTS, today + 'up', 1)[0];
+
+  const filledSquat = { ...squatVar, sets: mainSets, load: `${sWeight}kg (${pctLabel}% 1RM)` };
+  const filledHinge = { ...hingeVar, sets: mainSets, load: `${dWeight}kg` };
+  const filledPower = { ...powerVar, sets: 3, load: '60-75% 高翻1RM' };
+  const filledUpper = { ...upperVar, sets: 3, load: `${bWeight}kg (${pctLabel}%)` };
 
   switch (phase) {
     case 'strength_base': {
       const ex: ExerciseBlock[] = [
-        { name: '杠铃后深蹲', sets: mainSets, reps: '8次', load: `${sWeight}kg (${pctLabel}% 1RM)`, rest: '120-150s', notes: `核心收紧，下蹲至大腿与地面平行。向心阶段（起立）快速有力。本周目标：第${weekNumber}周${weekNumber >= 3 ? '接近力竭' : '保留2次余量'}。` },
-        { name: '罗马尼亚硬拉', sets: mainSets, reps: '10次', load: `${dWeight}kg`, rest: '90-120s', notes: '保持背部平直，臀部后推。杠铃沿小腿下滑至膝盖下方。腘绳肌拉伸感。' },
+        { ...filledSquat, notes: `${filledSquat.notes} 本周目标：第${weekNumber}周${weekNumber >= 3 ? '接近力竭' : '保留2次余量'}。` },
+        { ...filledHinge, notes: filledHinge.notes },
         { name: '保加利亚分腿蹲', sets: 3, reps: '每侧8次', load: '哑铃各10-15kg起', rest: '60s/侧', notes: '后脚抬高40cm，前腿下蹲至大腿平行。模拟单腿起跳力学。' },
-        { name: '悬垂高翻', sets: 3, reps: '5次', load: '60-70% 高翻1RM', rest: '90s', notes: '从悬垂位发力，三关节伸展（踝、膝、髋）+ 耸肩。爆发力基础技能。' },
+        { ...filledPower, notes: filledPower.notes },
         ...(trainingMode === 'holiday' ? [
-          { name: '北欧弯举', sets: 3, reps: '5-6次', rest: '90s', notes: '跪姿缓慢前倾，能控制多远就多远。渐进超负荷：每周多控制1-2cm。' },
-          { name: '卧推', sets: 3, reps: '8次', load: `${bWeight}kg (${pctLabel}%)`, rest: '90s', notes: '上肢推力维持，扣球力量传导链。' },
-          { name: '农夫行走', sets: 3, duration: '40m往返', rest: '60s', notes: '双手持哑铃/壶铃，核心稳定不侧倾。握力+核心+肩稳定。' },
-          { name: '弹力带反向前弓箭步', sets: 2, reps: '每侧12次', rest: '45s', notes: '弹力带固定于前方，后撤步弓步。抗阻髋伸训练。' },
+          { name: '北欧弯举', sets: 3, reps: '5-6次', rest: '90s', notes: '跪姿缓慢前倾，渐进超负荷。' },
+          { ...filledUpper, notes: `上肢推力维持。${filledUpper.notes}` },
         ] : []),
-        { name: 'Pallof Press 核心抗旋转', sets: 3, reps: '每侧10次（5秒保持）', rest: '45s', notes: '弹力带或龙门架，双手推至胸前伸直，对抗侧向拉力。排球扣球转体核心稳定。' },
+        { ...coreVar, sets: 3 },
       ];
-      return ex.slice(0, numExercises + 1); // +1 for core at the end
+      return ex.slice(0, numExercises + 1);
     }
 
     case 'power_conversion': {
@@ -256,6 +264,55 @@ function buildDietRecommendation(signal: BodySignal, bodyWeight: number, isTrain
 // ─── HELPERS ───
 function formatWeight(kg: number): number { return Math.round(kg / 2.5) * 2.5; }
 
+// Date-based rotation for exercise variety
+function pickFromPool<T>(pool: T[], dateStr: string, count: number): T[] {
+  const seed = dateStr.split('').reduce((s, c) => s + c.charCodeAt(0), 0);
+  const result: T[] = [];
+  const available = [...pool];
+  let idx = seed % available.length;
+  for (let i = 0; i < count && available.length > 0; i++) {
+    result.push(available.splice(idx % available.length, 1)[0]);
+    idx = (idx * 31 + 17) % Math.max(1, available.length);
+  }
+  return result;
+}
+
+// Exercise pools - multiple options per phase for variety
+const SQUAT_VARIANTS: ExerciseBlock[] = [
+  { name: '杠铃后深蹲', sets: 0, reps: '8次', load: '', rest: '120s', notes: '核心收紧，大腿与地面平行，向心阶段快速发力。' },
+  { name: '前蹲', sets: 0, reps: '6次', load: '', rest: '120s', notes: '杠铃架于前肩，躯干更直立。对胸椎活动度要求高，排球扣球力学更直接。' },
+  { name: '箱式深蹲', sets: 0, reps: '8次', load: '', rest: '120s', notes: '坐箱后起立。消除牵张反射，强化从静止位发力能力——模拟起跳起始位。' },
+  { name: '暂停深蹲', sets: 0, reps: '6次', load: '', rest: '120s', notes: '底部暂停2秒再起立。消除惯性，强化底部发力。对起跳预蹲有直接迁移。' },
+];
+
+const HINGE_VARIANTS: ExerciseBlock[] = [
+  { name: '罗马尼亚硬拉', sets: 0, reps: '10次', load: '', rest: '90s', notes: '保持背部平直，臀部后推。杠铃沿小腿下滑。' },
+  { name: '六角杠硬拉', sets: 0, reps: '8次', load: '', rest: '90s', notes: '更直立，对下背压力更小。力量传递效率更高，适合排球运动员。' },
+  { name: '单腿罗马尼亚硬拉', sets: 0, reps: '每侧8次', load: '', rest: '60s', notes: '强化单侧后链+平衡能力。排球单腿起跳的核心辅助。' },
+  { name: '宽握硬拉', sets: 0, reps: '6次', load: '', rest: '120s', notes: '更大活动范围，强化上背和握力。' },
+];
+
+const POWER_VARIANTS: ExerciseBlock[] = [
+  { name: '悬垂高翻', sets: 0, reps: '5次', load: '', rest: '120s', notes: '从悬垂位三关节爆发伸展。' },
+  { name: '悬垂抓举', sets: 0, reps: '5次', load: '', rest: '120s', notes: '更宽握距，更大活动范围。需要良好肩关节活动度。' },
+  { name: '哑铃单臂抓举', sets: 0, reps: '每侧5次', load: '', rest: '60s', notes: '单侧爆发力+肩稳定。扣球单侧发力迁移。' },
+  { name: '壶铃摆荡', sets: 0, reps: '15次', load: '', rest: '60s', notes: '髋主导爆发力。腘绳肌和臀大肌爆发力训练。' },
+];
+
+const CORE_VARIANTS: ExerciseBlock[] = [
+  { name: 'Pallof Press', sets: 3, reps: '每侧10次(5秒保持)', rest: '45s', notes: '抗旋转核心训练。扣球转体稳定基础。' },
+  { name: '平板支撑+肩轻拍', sets: 3, reps: '每侧15次', rest: '30s', notes: '平板位交替拍对侧肩。抗旋转+肩稳定。' },
+  { name: '悬垂举腿', sets: 3, reps: '10-12次', rest: '45s', notes: '悬挂位举腿至水平。腹直肌+髋屈肌。' },
+  { name: '农夫行走', sets: 3, duration: '40m往返', rest: '60s', notes: '持重物行走，核心稳定。握力+核心。' },
+];
+
+const UPPER_VARIANTS: ExerciseBlock[] = [
+  { name: '卧推', sets: 0, reps: '8次', load: '', rest: '90s', notes: '上肢推力维持。扣球力量链。' },
+  { name: '哑铃上斜卧推', sets: 0, reps: '10次', load: '', rest: '60s', notes: '上胸+前三角。扣球手臂前上方发力角度。' },
+  { name: '引体向上', sets: 0, reps: '8-10次', rest: '90s', notes: '背阔肌+握力。扣球拉臂的拮抗训练。' },
+  { name: '双杠臂屈伸', sets: 0, reps: '10-12次', rest: '60s', notes: '胸+三头。扣球手臂伸展力量。' },
+];
+
 // ─── MAIN GENERATOR ───
 export function generateDailyPlan(
   bodyMetrics: BodyMetrics, assessment: InitialAssessment | null,
@@ -299,7 +356,7 @@ export function generateDailyPlan(
   const riskAreas = effectiveReport.riskAreas || [];
   const warmup = buildWarmup(signal);
   const prehab = buildPrehab(riskAreas);
-  const mainWorkout = buildMainWorkout(phase, weekNumber, intensityMult, trainingMode, assessment.squatMax, assessment.deadliftMax, assessment.benchMax, effectiveReport.suggestedTrainingLoad);
+  const mainWorkout = buildMainWorkout(phase, weekNumber, intensityMult, trainingMode, assessment.squatMax, assessment.deadliftMax, assessment.benchMax, effectiveReport.suggestedTrainingLoad, bodyMetrics.date);
   const volleyballSpecific = buildVolleyballSpecific(phase, signal, trainingMode, assessment.experience);
   const cooldown = buildCooldown(signal);
 
