@@ -13,13 +13,33 @@ function getIntensityMultiplier(signal: BodySignal, playedYesterday: boolean): n
   return 1.0;
 }
 
-// ─── WARM-UP (detailed) ───
+// ─── WARM-UP (each exercise individually) ───
 function buildWarmup(signal: BodySignal): ExerciseBlock[] {
-  if (signal === 'red') return [{ name: '轻柔拉伸 + 泡沫轴', duration: '10min', notes: '重点部位轻柔放松，不做高强度动态拉伸' }];
+  if (signal === 'red') {
+    return [
+      { name: '泡沫轴轻柔滚动', duration: '3min', notes: '仅用自身体重压力，不过度按压。股四头肌、腘绳肌、背部各1分钟。' },
+      { name: '仰卧深呼吸', duration: '2min', notes: '仰卧，手放腹部。吸气4秒→屏息2秒→呼气6秒。激活副交感神经。' },
+      { name: '猫牛式脊柱活动', sets: 1, reps: '10次（慢速）', notes: '四足跪姿，吸气弓背、呼气凹背。5秒一个循环。' },
+    ];
+  }
   return [
-    { name: '泡沫轴自我放松', duration: '5min', notes: '侧重：股四头肌（大腿前侧）、腘绳肌（大腿后侧）、阔筋膜张肌（大腿外侧）、胸椎（上背部）。每个部位30秒，缓慢滚动。' },
-    { name: '动态热身序列', duration: '5min', notes: '①腿摆动（前后×10+左右×10）→②髋关节环绕（每侧×10）→③手臂大绕环（前后各×10）→④侧弓步交替（每侧×8）→⑤最伟大拉伸（每侧×5）' },
-    { name: '神经激活', duration: '2min', notes: '①快速高抬腿 2×10s→②A-Skip 2×15m→③臀桥激活 2×10次→④弹力带侧向行走 2×10步/侧' },
+    // Phase 1: Soft tissue
+    { name: '泡沫轴—股四头肌', duration: '每侧30秒', notes: '俯卧，泡沫轴置于大腿前侧。肘撑地缓慢前后滚动。找到痛点停10秒。' },
+    { name: '泡沫轴—腘绳肌', duration: '每侧30秒', notes: '坐姿，腿伸直，泡沫轴置于大腿后侧。手臂支撑身体前后滚动。' },
+    { name: '泡沫轴—阔筋膜张肌', duration: '每侧30秒', notes: '侧卧，泡沫轴置于大腿外侧髋关节下方。小范围滚动，这块肌肉通常很酸。' },
+    { name: '泡沫轴—胸椎段', duration: '30秒', notes: '仰卧，泡沫轴横置于上背部。双手抱头，缓慢做胸椎伸展。改善扣球时的胸椎旋转。' },
+    // Phase 2: Dynamic mobility
+    { name: '腿摆动—前后方向', sets: 1, reps: '每侧12次', notes: '手扶墙，腿放松前后摆动。逐渐增大摆动幅度。放松髋关节囊。' },
+    { name: '腿摆动—左右方向', sets: 1, reps: '每侧12次', notes: '手扶墙，腿在身体前方左右摆动（内收外展）。激活髋内收肌群。' },
+    { name: '髋关节环绕', sets: 1, reps: '每侧10圈/方向', notes: '手扶墙，膝盖抬高向外画大圈。正向10圈+反向10圈。提升髋臼活动空间。' },
+    { name: '手臂大绕环', sets: 1, reps: '前后各12次', notes: '双臂同时向前大绕环12次→向后12次。逐渐加速。肩关节全范围活动。' },
+    { name: '侧弓步交替', sets: 1, reps: '每侧8次', notes: '宽站姿，重心移到一侧做侧弓步，另一腿伸直。拉伸内收肌群。排球侧向移动准备。' },
+    { name: '最伟大拉伸（World\'s Greatest Stretch）', sets: 1, reps: '每侧5次', notes: '弓步位→同侧手肘触地→转体向上伸手→回到弓步。每次保持3秒。综合动态拉伸。' },
+    // Phase 3: Neural activation
+    { name: '快速高抬腿', sets: 2, reps: '10秒', rest: '20s', notes: '原地最快速度高抬腿。前脚掌着地，保持躯干稳定。激活快肌纤维。' },
+    { name: 'A-Skip 行进', sets: 2, reps: '15m', rest: '走回', notes: '抬膝至髋高+前脚掌扒地。模拟起跳最后一步的膝驱动。排球专项激活。' },
+    { name: '臀桥激活', sets: 2, reps: '12次', rest: '15s', notes: '仰卧屈膝，臀部发力上抬至肩髋膝一线。顶端夹臀1秒。激活起跳主力肌群。' },
+    { name: '弹力带侧向行走', sets: 2, reps: '每方向10步', rest: '15s', notes: '弹力带套脚踝上方，微蹲姿势侧向行走。激活臀中肌，稳定膝关节。' },
   ];
 }
 
@@ -182,11 +202,31 @@ function buildVolleyballSpecific(phase: MacroCyclePhase, signal: BodySignal, tra
   }
 }
 
-// ─── COOLDOWN ───
-function buildCooldown(signal: BodySignal, mainWorkoutType: string): ExerciseBlock[] {
+// ─── COOLDOWN (each stretch individually) ───
+function buildCooldown(signal: BodySignal): ExerciseBlock[] {
+  const holdTime = signal === 'red' ? '每侧60秒' : '每侧30-45秒';
+
   return [
-    { name: '静态拉伸（每动作30-45秒）', duration: '8-10min', notes: '必做：①股四头肌拉伸（侧卧拉脚跟）→②腘绳肌拉伸（仰卧弹力带辅助）→③臀大肌拉伸（4字拉伸）→④胸肌拉伸（门框/墙）→⑤背阔肌拉伸（悬垂或扶墙）→⑥髋屈肌拉伸（半跪姿）→⑦小腿拉伸（推墙）。全程深呼吸，不憋气。' },
-    { name: '泡沫轴深度放松', duration: '5-10min', notes: `重点区域：①股四头肌（${signal === 'red' || mainWorkoutType === 'legs' ? '3min/侧' : '1min/侧'}）→②腘绳肌→③阔筋膜张肌→④臀大肌→⑤上背部（胸椎段）→⑥背阔肌。每部位缓慢滚动30-60秒，痛点多停留。` },
+    // Static stretches - each as individual exercise
+    { name: '股四头肌拉伸', duration: holdTime, notes: '侧卧，下方腿屈膝，上方手抓同侧脚踝向后拉向臀部。保持骨盆中立不前倾。感受大腿前侧拉伸。扣球落地的主要离心肌群。' },
+    { name: '腘绳肌拉伸（仰卧弹力带）', duration: holdTime, notes: '仰卧，弹力带套脚底，腿伸直上举。保持膝盖锁直，缓慢拉向身体。感受大腿后侧拉伸。若没有弹力带可用毛巾替代。' },
+    { name: '臀大肌拉伸（4字拉伸/鸽子式）', duration: holdTime, notes: '仰卧，右脚踝搭左膝上方（4字形），双手抱左大腿后侧拉向胸部。感受右侧臀部深层拉伸。左右交换。排球运动员臀大肌通常紧张。' },
+    { name: '髋屈肌拉伸', duration: holdTime, notes: '半跪姿，右膝跪地（垫毛巾），左腿前弓步。收紧右侧臀肌向前推髋，感受右侧大腿根部前方拉伸。扣球起跳髋伸的关键肌群。' },
+    { name: '内收肌拉伸（蝴蝶式）', duration: holdTime, notes: '坐姿，脚底相对，膝盖向外打开。手抓脚踝，肘压膝盖内侧。保持背部挺直。侧向移动和内收肌群灵活度维持。' },
+    { name: '胸肌拉伸', duration: holdTime, notes: '站姿，手臂外展90°，前臂贴门框/墙壁。身体向前旋转，感受胸肌和前肩拉伸。扣球和卧推后必做。' },
+    { name: '背阔肌拉伸', duration: holdTime, notes: '手扶固定物（杠铃架/门框），屈髋向后坐，手臂伸直。感受背阔肌和躯干侧面拉伸。排球扣球的主要发力链。' },
+    { name: '小腿拉伸（推墙）', duration: holdTime, notes: '弓箭步面墙，后腿伸直脚跟贴地，前腿屈膝。感受小腿后侧（腓肠肌）拉伸。然后后腿微屈膝，拉伸更深层的比目鱼肌。跳跃落地缓冲关键肌群。' },
+    { name: '颈部放松', duration: '每侧30秒', notes: '坐姿，右手轻拉头部向右侧屈，左肩下沉。感受左侧斜方肌拉伸。左右交换。放松扣球和传球紧张的肩颈。' },
+
+    // Foam rolling
+    { name: '泡沫轴—股四头肌深度放松', duration: '每侧60-90秒', notes: '俯卧，缓慢滚动。重点：髌骨上方10cm处（股四头肌肌腱），跳跃膝高发区域。痛点停留20-30秒待放松。' },
+    { name: '泡沫轴—腘绳肌深度放松', duration: '每侧45-60秒', notes: '坐姿滚动大腿后侧。找到肌肉结节处小范围滚动。' },
+    { name: '泡沫轴—阔筋膜张肌/髂胫束', duration: '每侧60秒', notes: '侧卧，泡沫轴从髋外侧滚至膝外侧。排球运动员这块通常很紧。如果太痛可减小压力。' },
+    { name: '泡沫轴—臀大肌/梨状肌', duration: '每侧60秒', notes: '坐泡沫轴上，右脚踝搭左膝，身体向右侧倾斜。感受臀部深层酸胀。梨状肌紧张可能导致坐骨神经不适。' },
+    { name: '泡沫轴—胸椎段和背阔肌', duration: '60秒', notes: '仰卧泡沫轴横置上背部，抱头做胸椎伸展。然后侧身滚动背阔肌区域。' },
+
+    // Breathing
+    { name: '腹式深呼吸收尾', duration: '2min', notes: '仰卧闭眼，手放腹部。吸气4秒→呼气6秒。10个呼吸循环。让心率回落至静息水平，神经系统进入恢复模式。' },
   ];
 }
 
@@ -242,7 +282,7 @@ export function generateDailyPlan(
   const prehab = buildPrehab(riskAreas);
   const mainWorkout = buildMainWorkout(phase, weekNumber, intensityMult, trainingMode, assessment.squatMax, assessment.deadliftMax, assessment.benchMax, report.suggestedTrainingLoad);
   const volleyballSpecific = buildVolleyballSpecific(phase, signal, trainingMode, assessment.experience);
-  const cooldown = buildCooldown(signal, phase);
+  const cooldown = buildCooldown(signal);
 
   // Build notes
   const notes: string[] = [];
