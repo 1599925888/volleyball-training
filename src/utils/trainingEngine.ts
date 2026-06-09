@@ -262,25 +262,44 @@ export function generateDailyPlan(
   report: AssessmentReport | null, phase: MacroCyclePhase,
   weekNumber: number, trainingMode: 'school' | 'holiday',
 ): DailyPlan {
-  if (!assessment || !report) {
+  // If no assessment at all, return a minimal plan instead of empty
+  if (!assessment) {
     return {
       date: bodyMetrics.date, macroCycleId: 0, bodySignal: 'green',
-      intensityPercent: 100, warmup: [], prehab: [], mainWorkout: [],
-      volleyballSpecific: [], cooldown: [],
-      notes: '⚠️ 请先完成初始体测评估，系统才能生成个性化训练计划。',
+      intensityPercent: 100,
+      warmup: buildWarmup('green'),
+      prehab: buildPrehab([]),
+      mainWorkout: [{ name: '自重深蹲', sets: 3, reps: '15次', rest: '60s', notes: '无体测数据，使用默认自重训练' }, { name: '俯卧撑', sets: 3, reps: '12次', rest: '60s' }, { name: '平板支撑', sets: 3, duration: '45s', rest: '30s' }],
+      volleyballSpecific: [{ name: '步法移动', duration: '10min', notes: '前后左右移动练习' }],
+      cooldown: buildCooldown('green'),
+      notes: '⚠️ 尚未完成初始体测，使用默认计划。建议尽快完成体测以获得个性化方案。',
       completed: false,
     };
   }
+
+  // Use report if available, otherwise build a minimal one from assessment
+  const effectiveReport = report || {
+    verticalJumpHeight: assessment.maxApproachReach - assessment.standingReach,
+    relativeSquatStrength: assessment.squatMax / assessment.weight,
+    jumpRating: 'yellow' as const,
+    strengthBalance: { squat: assessment.squatMax, deadlift: assessment.deadliftMax, bench: assessment.benchMax },
+    posteriorChainRatio: assessment.deadliftMax / assessment.squatMax,
+    riskAreas: assessment.injuryHistory || [],
+    recommendations: [],
+    suggestedStartPhase: 'strength_base' as const,
+    suggestedTrainingLoad: 70,
+    suggestedJumpVolume: 'medium' as const,
+  };
 
   const signal = computeBodySignal(bodyMetrics);
   const playedYesterday = bodyMetrics.playedVolleyball;
   const intensityMult = getIntensityMultiplier(signal, playedYesterday);
   const intensityPercent = Math.round(intensityMult * 100);
 
-  const riskAreas = report.riskAreas || [];
+  const riskAreas = effectiveReport.riskAreas || [];
   const warmup = buildWarmup(signal);
   const prehab = buildPrehab(riskAreas);
-  const mainWorkout = buildMainWorkout(phase, weekNumber, intensityMult, trainingMode, assessment.squatMax, assessment.deadliftMax, assessment.benchMax, report.suggestedTrainingLoad);
+  const mainWorkout = buildMainWorkout(phase, weekNumber, intensityMult, trainingMode, assessment.squatMax, assessment.deadliftMax, assessment.benchMax, effectiveReport.suggestedTrainingLoad);
   const volleyballSpecific = buildVolleyballSpecific(phase, signal, trainingMode, assessment.experience);
   const cooldown = buildCooldown(signal);
 

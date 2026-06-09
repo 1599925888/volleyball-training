@@ -2,6 +2,7 @@ import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { db } from './db';
 import { useAppStore } from './stores/appStore';
+import { getFallbackReport } from './utils/aiEngine';
 import Layout from './components/Layout';
 import Dashboard from './pages/Dashboard';
 import Onboarding from './pages/Onboarding';
@@ -18,7 +19,7 @@ import DietPage from './pages/DietPage';
 import SettingsPage from './pages/SettingsPage';
 
 export default function App() {
-  const { setOnboardingCompleted, setInitialAssessment, setUserProfile, setCurrentMacroCycle } = useAppStore();
+  const { setOnboardingCompleted, setInitialAssessment, setAssessmentReport, setUserProfile, setCurrentMacroCycle } = useAppStore();
   const [loading, setLoading] = useState(true);
   const [hasAssessment, setHasAssessment] = useState(false);
 
@@ -30,6 +31,9 @@ export default function App() {
         setHasAssessment(true);
         setInitialAssessment(assessment);
         setOnboardingCompleted(true);
+        // Regenerate report from assessment data (report was lost on page refresh)
+        const report = getFallbackReport(assessment);
+        setAssessmentReport(report);
       }
       // Load profile
       const profile = await db.userProfile.orderBy('id').last();
